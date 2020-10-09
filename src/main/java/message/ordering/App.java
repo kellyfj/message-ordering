@@ -21,9 +21,8 @@ public class App {
     public static final String END_OF_STREAM_MARKER = "EOS";
     private static final int BUFFER_READ_SIZE = 1024;
     private PulsarClient client;
-    private boolean asynchronous = false;
 
-    public App() throws IOException, InterruptedException {
+    public App(boolean asynchronous, int batchingMaxMessages) throws IOException, InterruptedException {
         client = PulsarClient.builder()
                 .serviceUrl("pulsar://localhost:6650")
                 .build();
@@ -66,7 +65,7 @@ public class App {
             try {
                 List<CompletableFuture> futureList = new ArrayList();
                 Producer<byte[]> producer1 = client.newProducer()
-                        //.batchingMaxMessages(1)
+                        .batchingMaxMessages(batchingMaxMessages)
                         .blockIfQueueFull(true)
                         .topic(TOPIC_NAME)
                         .create();
@@ -147,6 +146,21 @@ public class App {
     }
 
     public static void main(String[] args) throws Exception {
-        App a = new App();
+        if(args.length != 2) {
+            System.err.println("Arguments (sync|async) (maxBatchSize)");
+            System.exit(-1);
+        }
+
+        String syncOrAsync = args[0];
+        boolean async = false;
+        if("sync".equals(syncOrAsync) || "async".equals(syncOrAsync)) {
+            async = "async".equals(syncOrAsync);
+        } else {
+            System.err.println("Arguments (sync|async) (maxBatchSize)");
+            System.exit(-1);
+        }
+        int maxBatchingSize = Integer.parseInt(args[1]);
+
+        App a = new App(async, maxBatchingSize);
     }
 }
