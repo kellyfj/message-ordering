@@ -3,12 +3,103 @@
  */
 package message.ordering;
 
+import org.apache.pulsar.client.api.*;
+
+import java.io.*;
+import java.util.Arrays;
+
 public class App {
-    public String getGreeting() {
-        return "Hello world.";
+
+    private static final String TOPIC_NAME = "wav-"+ System.currentTimeMillis();
+    public static final String END_OF_STREAM_MARKER = "EOS";
+    private PulsarClient client;
+
+    public App() throws IOException, InterruptedException {
+        client = PulsarClient.builder()
+                .serviceUrl("pulsar://localhost:6650")
+                .build();
+
+        Runnable consumer = new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Consumer consumer = client.newConsumer()
+                            .topic(TOPIC_NAME)
+                            .subscriptionName("my-subscription")
+                            .subscribe();
+
+                    boolean eosSeen = false;
+                    // Wait for a message
+                    int total = 0;
+                    String outputFilename = "/tmp/"+TOPIC_NAME+".wav";
+                    File outputFile = new File(outputFilename);
+                    FileOutputStream fos = new FileOutputStream(outputFile);
+                    while (eosSeen == false) {
+                        Message msg = consumer.receive();
+                        fos.write(msg.getData());
+                        total += msg.getData().length;
+                        consumer.acknowledge(msg);
+                        if ("true".equals(msg.getProperty(END_OF_STREAM_MARKER))) {
+                            eosSeen = true;
+                        }
+                    }
+                    System.out.println("Received " + total + " bytes");
+                    fos.close();
+                    System.out.println("Output file:  " + outputFilename);
+                    consumer.close();
+                } catch(Exception e) {
+                    System.err.println(e.getMessage());
+                    e.printStackTrace();
+                }
+            }
+        };
+
+        Thread consumerThread = new Thread(consumer);
+        consumerThread.start();
+
+        Runnable producer = new Runnable() {
+            int BUFFER_READ_SIZE = 1024;
+            @Override
+            public void run() {
+                try {
+                    Producer<byte[]> producer = client.newProducer()
+                            .topic(TOPIC_NAME)
+                            .create();
+
+                    File inputFile = new File("src/main/resources/CantinaBand60.wav");
+                    InputStream inputStream = new DataInputStream(new FileInputStream(inputFile));
+                    byte[] buffer = new byte[BUFFER_READ_SIZE];
+                    int len;
+                    int total = 0;
+                    while ((len = inputStream.read(buffer)) != -1) {
+                        if(len == BUFFER_READ_SIZE) {
+                            producer.send(buffer);
+                        } else {
+                            producer.send(Arrays.copyOfRange(buffer, 0, len));
+                        }
+                        total += len;
+                    }
+                    System.out.println("Sent a total of " + total + " bytes");
+                    TypedMessageBuilder message = producer.newMessage();
+                    message.property(END_OF_STREAM_MARKER, "true");
+                    message.send();
+                    producer.close();
+                } catch(Exception e) {
+                    System.err.println(e.getMessage());
+                    e.printStackTrace();
+                }
+            }
+        };
+        Thread producerThread = new Thread(producer);
+        producerThread.start();
+
+        producerThread.join();
+        consumerThread.join();
+
+        client.close();
     }
 
-    public static void main(String[] args) {
-        System.out.println(new App().getGreeting());
+    public static void main(String[] args) throws Exception {
+        App a = new App();
     }
 }
