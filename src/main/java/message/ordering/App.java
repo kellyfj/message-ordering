@@ -94,9 +94,16 @@ public class App {
                 System.out.println("Sent a total of " + total + " bytes");
                 TypedMessageBuilder message = producer1.newMessage();
                 message.property(END_OF_STREAM_MARKER, "true");
-                futureList.add(message.sendAsync());
+                if(asynchronous) {
+                    futureList.add(message.sendAsync());
+                } else {
+                    message.send();
+                }
                 for(CompletableFuture f : futureList ) {
                     f.join();
+                }
+                if(asynchronous) {
+                    producer1.flush();
                 }
                 producer1.close();
             } catch(Exception e) {
