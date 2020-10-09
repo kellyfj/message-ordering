@@ -1,12 +1,12 @@
 # Pulsar Message Ordering Test
 
-##Intent
+## Intent
 
 To show a possible bug or misunderstanding when using a single Pulsar producer to send a stream of messages.
 When using Synchronous send they appear to arrive in order.
 When using asynchronous send they appear NOT to arrive in order, or they can as long as the `matchBatchingSize` is set to 1.
 
-##Design
+## Design
 
 1) Read a WAV file
 2) Break it up into separate messages and send it over a Pulsar Producer
@@ -14,7 +14,7 @@ When using asynchronous send they appear NOT to arrive in order, or they can as 
 4) Write the received data to a file
 5) Compare the input and output file sizes and contents
 
-##To Run
+## To Run
 
 1) Run a local Pulsar using docker e.g.
 ```
@@ -62,6 +62,6 @@ File Sizes same? true
 File contents same? true
 ```
 
-##Upshot
+## Upshot
 
 Even though we are using a single producer async send does seem to result in different message ordering
