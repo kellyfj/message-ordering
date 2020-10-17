@@ -24,7 +24,7 @@ public class App {
     public static final String END_OF_STREAM_MARKER = "EOS";
     public static final String MSG_NUMBER = "msgNum";
     public static final String MSG_SHA = "msgSha";
-    private static final int BUFFER_READ_SIZE = 1024 * 8;
+    private static final int BUFFER_READ_SIZE = 1024;
     private PulsarClient client;
 
     public App(boolean asynchronous, int batchingMaxMessages) throws IOException, InterruptedException {
@@ -56,7 +56,6 @@ public class App {
                     MessageDigest md = MessageDigest.getInstance("SHA-1");
                     md.update(data);
                     String newSha = DigestUtils.md2Hex(md.digest());
-                    System.out.println("MsgNum: " + msgNum + ", Hash: " + sha + ", NewHash: " + newSha);
                     if ("true".equals(msg.getProperty(END_OF_STREAM_MARKER))) {
                         eosSeen = true;
                     }
@@ -78,7 +77,7 @@ public class App {
             try {
                 List<CompletableFuture> futureList = new ArrayList();
                 Producer<byte[]> producer1 = client.newProducer()
-                        .batchingMaxMessages(999)
+                        .batchingMaxMessages(batchingMaxMessages)
                         .batchingMaxPublishDelay(100, TimeUnit.SECONDS)
                         .blockIfQueueFull(true)
                         .topic(TOPIC_NAME)
@@ -94,11 +93,7 @@ public class App {
                 while ((len = inputStream.read(buffer)) != -1) {
                     message = producer1.newMessage();
                     byte[] sendBuf;
-                    if(len == BUFFER_READ_SIZE) {
-                        sendBuf = buffer;
-                    } else {
-                        sendBuf = Arrays.copyOfRange(buffer, 0, len);
-                    }
+                    sendBuf = Arrays.copyOfRange(buffer, 0, len);
                     message.value(sendBuf);
                     message.property(MSG_NUMBER, String.valueOf(count));
                     MessageDigest md = MessageDigest.getInstance("SHA-1");
