@@ -4,14 +4,17 @@
 package message.ordering;
 
 import org.apache.pulsar.client.api.*;
+import org.apache.pulsar.shade.org.apache.commons.codec.digest.DigestUtils;
+import org.apache.pulsar.shade.org.apache.commons.lang.RandomStringUtils;
 
 import java.io.*;
 import java.nio.file.Files;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 public class App {
 
@@ -19,6 +22,8 @@ public class App {
     private static final String INPUT_FILE_NAME = "src/main/resources/CantinaBand60.wav";
     private static final String OUTPUT_FILE_NAME = "/tmp/"+TOPIC_NAME+".wav";
     public static final String END_OF_STREAM_MARKER = "EOS";
+    public static final String MSG_NUMBER = "msgNum";
+    public static final String MSG_SHA = "msgSha";
     private static final int BUFFER_READ_SIZE = 1024;
     private PulsarClient client;
 
@@ -31,7 +36,8 @@ public class App {
             try {
                 Consumer consumer1 = client.newConsumer()
                         .topic(TOPIC_NAME)
-                        .subscriptionName("my-subscription")
+                        .subscriptionName("my-subscription-" + RandomStringUtils.randomAlphanumeric(5))
+                        .subscriptionType(SubscriptionType.Exclusive)
                         .subscribe();
 
                 boolean eosSeen = false;
@@ -41,9 +47,15 @@ public class App {
                 FileOutputStream fos = new FileOutputStream(outputFile);
                 while (eosSeen == false) {
                     Message msg = consumer1.receive();
-                    fos.write(msg.getData());
+                    byte[] data = msg.getData();
+                    fos.write(data);
                     total += msg.getData().length;
                     consumer1.acknowledge(msg);
+                    String msgNum = msg.getProperty(MSG_NUMBER);
+                    String sha = msg.getProperty(MSG_SHA);
+                    MessageDigest md = MessageDigest.getInstance("SHA-1");
+                    md.update(data);
+                    String newSha = DigestUtils.md2Hex(md.digest());
                     if ("true".equals(msg.getProperty(END_OF_STREAM_MARKER))) {
                         eosSeen = true;
                     }
@@ -66,6 +78,7 @@ public class App {
                 List<CompletableFuture> futureList = new ArrayList();
                 Producer<byte[]> producer1 = client.newProducer()
                         .batchingMaxMessages(batchingMaxMessages)
+                        .batchingMaxPublishDelay(100, TimeUnit.SECONDS)
                         .blockIfQueueFull(true)
                         .topic(TOPIC_NAME)
                         .create();
@@ -75,36 +88,35 @@ public class App {
                 byte[] buffer = new byte[BUFFER_READ_SIZE];
                 int len;
                 int total = 0;
+                int count = 0;
+                TypedMessageBuilder message;
                 while ((len = inputStream.read(buffer)) != -1) {
-                    if(len == BUFFER_READ_SIZE) {
-                        if(asynchronous) {
-                            futureList.add(producer1.sendAsync(buffer));
-                        } else {
-                            producer1.send(buffer);
-                        }
+                    message = producer1.newMessage();
+                    byte[] sendBuf;
+                    sendBuf = Arrays.copyOfRange(buffer, 0, len);
+                    message.value(sendBuf);
+                    message.property(MSG_NUMBER, String.valueOf(count));
+                    MessageDigest md = MessageDigest.getInstance("SHA-1");
+                    md.update(sendBuf);
+                    message.property(MSG_SHA, DigestUtils.md2Hex(md.digest()));
+                    if(asynchronous) {
+                        futureList.add(message.sendAsync());
                     } else {
-                        if(asynchronous) {
-                            futureList.add(producer1.sendAsync(Arrays.copyOfRange(buffer, 0, len)));
-                        } else {
-                            producer1.sendAsync(Arrays.copyOfRange(buffer, 0, len));
-                        }
+                        message.send();
                     }
                     total += len;
+                    count += 1;
                 }
                 System.out.println("Sent a total of " + total + " bytes");
-                TypedMessageBuilder message = producer1.newMessage();
+                message = producer1.newMessage();
                 message.property(END_OF_STREAM_MARKER, "true");
                 if(asynchronous) {
                     futureList.add(message.sendAsync());
                 } else {
                     message.send();
                 }
-                for(CompletableFuture f : futureList ) {
-                    f.join();
-                }
-                if(asynchronous) {
-                    producer1.flush();
-                }
+                producer1.flush();
+                CompletableFuture.allOf(futureList.toArray(new CompletableFuture[futureList.size()])).join();
                 producer1.close();
             } catch(Exception e) {
                 System.err.println(e.getMessage());
