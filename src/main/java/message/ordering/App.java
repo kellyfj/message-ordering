@@ -9,6 +9,7 @@ import org.apache.pulsar.shade.org.apache.commons.lang.RandomStringUtils;
 
 import java.io.*;
 import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -84,32 +85,30 @@ public class App {
                         .topic(TOPIC_NAME)
                         .create();
 
-                File inputFile = new File(INPUT_FILE_NAME);
-                InputStream inputStream = new DataInputStream(new FileInputStream(inputFile));
-                byte[] buffer = new byte[BUFFER_READ_SIZE];
-                int len;
+                byte[] allBytes = Files.readAllBytes(Paths.get(INPUT_FILE_NAME));
                 int total = 0;
                 int count = 0;
                 TypedMessageBuilder message;
-                while ((len = inputStream.read(buffer)) != -1) {
+                for (int i = 0; i < (allBytes.length / BUFFER_READ_SIZE) + 1; i++) {
                     message = producer1.newMessage();
-                    byte[] sendBuf;
-                    if(len == BUFFER_READ_SIZE) {
-                        sendBuf = buffer;
-                    } else {
-                        sendBuf = Arrays.copyOfRange(buffer, 0, len);
+                    int startBuf = i * BUFFER_READ_SIZE;
+                    int endBuf = (i + 1) * BUFFER_READ_SIZE;
+                    if (endBuf > allBytes.length) {
+                        endBuf = allBytes.length;
                     }
-                    message.value(sendBuf);
+                    byte[] buffer;
+                    buffer = Arrays.copyOfRange(allBytes, startBuf, endBuf);
+                    message.value(buffer);
                     message.property(MSG_NUMBER, String.valueOf(count));
                     MessageDigest md = MessageDigest.getInstance("SHA-1");
-                    md.update(sendBuf);
+                    md.update(buffer);
                     message.property(MSG_SHA, DigestUtils.md2Hex(md.digest()));
                     if(asynchronous) {
                         futureList.add(message.sendAsync());
                     } else {
                         message.send();
                     }
-                    total += len;
+                    total += buffer.length;
                     count += 1;
                 }
                 System.out.println("Sent a total of " + total + " bytes");
